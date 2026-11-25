@@ -83,22 +83,20 @@ LAYOUTS = {
         1200, 420, 930, 210, 150,
         {"n": 16, "h": 86, "s": 23, "l": 15},
         (
-            ("h", 66, 150, TEXT["l1"]),
-            ("h", 66, 238, TEXT["l2"]),
-            ("s", 70, 284, TEXT["sub"]),
-            ("l", 72, 332, TEXT["label"]),
+            ("h", 66, 172, TEXT["l1"]),
+            ("h", 66, 260, TEXT["l2"]),
+            ("s", 70, 306, TEXT["sub"]),
         ),
     ),
     # Phones: drawn for a ~360 px column, so small text stays legible after scaling.
     "compact": Layout(
-        720, 628, 360, 150, 112,
+        720, 584, 360, 150, 112,
         {"n": 22, "h": 76, "s": 29, "l": 20},
         (
             ("h", 46, 362, TEXT["l1"]),
             ("h", 46, 442, TEXT["l2"]),
             ("s", 50, 496, "Occasionally, I write the code"),
             ("s", 50, 534, "responsible for them."),
-            ("l", 52, 590, TEXT["label"]),
         ),
     ),
 }
@@ -268,7 +266,8 @@ def render(theme: str, cfg: Config, layout: Layout) -> str:
     used = {k: "".join(t for cls, _, _, t in layout.lines if cls in k) for k in ("h", "s", "nl")}
     display = font_data("Inter-SemiBold.woff2", used["h"])
     body = font_data("Inter-Regular.woff2", used["s"])
-    mono = font_data("JetBrainsMono-Regular.woff2", used["nl"])
+    # The monospace face is embedded only if a layout draws monospace text.
+    mono = font_data("JetBrainsMono-Regular.woff2", used["nl"]) if used["nl"] else None
     z = layout.sizes
     texts = "\n".join(
         f'<text class="{cls} in a{min(i + 1, 5)}" x="{x}" y="{y}">{t.replace("&", "&amp;")}</text>'
@@ -278,11 +277,11 @@ def render(theme: str, cfg: Config, layout: Layout) -> str:
     W, H = layout.width, layout.height
     return f"""<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" width="{W}" height="{H}" role="img" aria-labelledby="t d">
 <title id="t">Joshua Mhone</title>
-<desc id="d">I exploit assumptions. Occasionally, I write the code responsible for them. Software engineering and offensive security.</desc>
+<desc id="d">I exploit assumptions. Occasionally, I write the code responsible for them.</desc>
 <style>
 @font-face{{font-family:D;font-weight:600;src:url(data:font/woff2;base64,{display}) format("woff2")}}
 @font-face{{font-family:B;font-weight:400;src:url(data:font/woff2;base64,{body}) format("woff2")}}
-@font-face{{font-family:M;font-weight:400;src:url(data:font/woff2;base64,{mono}) format("woff2")}}
+{f'@font-face{{font-family:M;font-weight:400;src:url(data:font/woff2;base64,{mono}) format("woff2")}}' if mono else ''}
 .n{{font:400 {z['n']}px M,ui-monospace,monospace;letter-spacing:4.5px;fill:{c['small']}}}
 .h{{font:600 {z['h']}px D,Inter,system-ui,sans-serif;letter-spacing:-2.6px;fill:{c['ink']}}}
 .s{{font:400 {z['s']}px B,Inter,system-ui,sans-serif;fill:{c['sub']}}}
