@@ -4,5 +4,3 @@
   <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.svg">
   <img src="assets/banner-light.svg" alt="Joshua Mhone. I exploit assumptions. Occasionally, I write the code responsible for them.">
 </picture>
-
-<sub><a href="mailto:joshuamhone9@gmail.com">joshuamhone9@gmail.com</a></sub>
