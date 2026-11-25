@@ -64,7 +64,6 @@ TEXT = {
     "l1": "I exploit",
     "l2": "assumptions.",
     "sub": "Occasionally, I write the code responsible for them.",
-    "label": "SOFTWARE ENGINEERING & OFFENSIVE SECURITY",
 }
 
 @dataclasses.dataclass(frozen=True)
