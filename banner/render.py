@@ -61,7 +61,6 @@ class Config:
 
 
 TEXT = {
-    "name": "JOSHUA MHONE",
     "l1": "I exploit",
     "l2": "assumptions.",
     "sub": "Occasionally, I write the code responsible for them.",
@@ -85,24 +84,22 @@ LAYOUTS = {
         1200, 420, 930, 210, 150,
         {"n": 16, "h": 86, "s": 23, "l": 15},
         (
-            ("n", 72, 92, TEXT["name"]),
-            ("h", 66, 192, TEXT["l1"]),
-            ("h", 66, 280, TEXT["l2"]),
-            ("s", 70, 326, TEXT["sub"]),
-            ("l", 72, 374, TEXT["label"]),
+            ("h", 66, 150, TEXT["l1"]),
+            ("h", 66, 238, TEXT["l2"]),
+            ("s", 70, 284, TEXT["sub"]),
+            ("l", 72, 332, TEXT["label"]),
         ),
     ),
     # Phones: drawn for a ~360 px column, so small text stays legible after scaling.
     "compact": Layout(
-        720, 640, 548, 176, 118,
+        720, 628, 360, 150, 112,
         {"n": 22, "h": 76, "s": 29, "l": 20},
         (
-            ("n", 52, 76, TEXT["name"]),
-            ("h", 46, 382, TEXT["l1"]),
-            ("h", 46, 462, TEXT["l2"]),
-            ("s", 50, 516, "Occasionally, I write the code"),
-            ("s", 50, 554, "responsible for them."),
-            ("l", 52, 606, TEXT["label"]),
+            ("h", 46, 362, TEXT["l1"]),
+            ("h", 46, 442, TEXT["l2"]),
+            ("s", 50, 496, "Occasionally, I write the code"),
+            ("s", 50, 534, "responsible for them."),
+            ("l", 52, 590, TEXT["label"]),
         ),
     ),
 }
