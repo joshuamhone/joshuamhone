@@ -45,18 +45,32 @@ class Config:
     # Wireframe
     step: int = 12  # degrees between meridians
     latitudes: tuple[int, ...] = (-72, -54, -36, -18, 0, 18, 36, 54, 72)
-    segments: int = 12  # quadratic segments per half meridian
-    keyframes: int = 4  # samples per step; linear interpolation between them
-    seconds_per_step: float = 3.0  # one full turn = 360 / step * this
-    # Depth shading: opacity = floor + (peak - floor) * facing ** gamma
-    peak: float = 0.72
-    floor: float = 0.0
-    gamma: float = 1.15
-    # Geodesic: a great circle inclined to the equator, traced by one point
+    segments: int = 8  # quadratic segments per half meridian
+    keyframes: int = 2  # intervals per step; 6 degrees apart, so straight-line interpolation is within 0.2 px
+    seconds_per_step: float = 1.5  # one full turn = 360 / step * this = 45 s
+    # Depth shading of the wireframe. Front: floor + (peak - floor) * facing ** gamma.
+    # Rear: rear_near at the limb, falling to rear_far at the point farthest away.
+    peak: float = 0.85
+    floor: float = 0.3
+    gamma: float = 1.0
+    rear_near: float = 0.07
+    rear_far: float = 0.02
+    # Ocean Wireframe palette
+    line_color: str = "#3f93ea"
+    geodesic_color: str = "#8fd2ff"
+    geodesic_peak: float = 1.0
+    geodesic_width: float = 1.6
+    rim_color: str = "#6ad4ff"
+    fill_core: str = "#01050b"  # sphere interior at the centre
+    fill_mid: str = "#031428"
+    fill_edge: str = "#0a2c50"  # sphere interior at the limb
+    rim_glow: float = 0.1  # intensity of the cyan illumination around the limb, 0 to 1
+    halo_width: float = 0.03  # how far the illumination reaches, as a fraction of the radius
+    limb_opacity: float = 1.0  # crisp edge line where the light falls, top left
+    limb_falloff: float = 0.4  # edge line opacity at the bottom right, relative to the top left
+    # Geodesic: a great circle inclined to the equator
     geodesic_inclination: float = 38.0  # angle between its plane and the equator
     geodesic_node: float = -32.0  # longitude where it crosses the equator, seen from the camera
-    geodesic_seconds: float = 11.0
-    geodesic_samples: int = 96
     precision: int = 1
 
 
@@ -102,8 +116,9 @@ LAYOUTS = {
 }
 
 THEMES = {
-    "dark": {"bg": "#07090c", "ink": "#eef1f5", "sub": "#9aa5b4", "small": "#8592a3", "line": "#dfe5ec", "edge": "#1b222c"},
-    "light": {"bg": "#f6f8fa", "ink": "#0b0f14", "sub": "#4b5563", "small": "#5b6573", "line": "#1f2328", "edge": "#d0d7de"},
+    # The globe uses the Config palette in both themes; themes only set the page around it.
+    "dark": {"bg": "#07090c", "ink": "#eef1f5", "sub": "#9aa5b4", "small": "#8592a3", "edge": "#1b222c"},
+    "light": {"bg": "#f6f8fa", "ink": "#0b0f14", "sub": "#4b5563", "small": "#5b6573", "edge": "#d0d7de"},
 }
 
 
@@ -137,11 +152,13 @@ class Camera:
         return max(0.0, (d * p[2] - 1) / (d - 1))
 
     def opacity(self, p: Vec) -> float:
+        """Line opacity from depth: bright facing the camera, faint behind the sphere."""
+        c, d = self.cfg, self.cfg.distance
         f = self.facing(p)
-        if f <= 0:
-            return 0.0
-        c = self.cfg
-        return c.floor + (c.peak - c.floor) * f**c.gamma
+        if f > 0:
+            return c.floor + (c.peak - c.floor) * f**c.gamma
+        rear = min(1.0, max(0.0, (1 - d * p[2]) / (d + 1)))  # 0 at the limb, 1 at the far pole
+        return c.rear_near + (c.rear_far - c.rear_near) * rear
 
 
 def unit(v: Vec) -> Vec:
@@ -186,7 +203,7 @@ def render(theme: str, cfg: Config, layout: Layout) -> str:
     cam = Camera(cfg, layout)
     p = cfg.precision
     fmt = lambda v: f"{v:.{p}f}".rstrip("0").rstrip(".") if p else f"{round(v)}"
-    op = lambda v: f"{v:.3f}".rstrip("0").rstrip(".") or "0"
+    op = lambda v: f"{v:.2f}".rstrip("0").rstrip(".") or "0"
     dur = f"{cfg.seconds_per_step:g}s"
 
     # Meridians: each half meridian is split into fixed segments, so every frame has
@@ -194,6 +211,7 @@ def render(theme: str, cfg: Config, layout: Layout) -> str:
     lat_edges = [-90 + 180 * i / cfg.segments for i in range(cfg.segments + 1)]
     frames = [cfg.step * k / cfg.keyframes for k in range(cfg.keyframes + 1)]
     meridians = []
+    still: dict[str, list[str]] = {}  # frame 0, grouped by opacity, for reduced motion
     for lon in range(0, 360, cfg.step):
         for i in range(cfg.segments):
             ds, ops = [], []
@@ -202,8 +220,7 @@ def render(theme: str, cfg: Config, layout: Layout) -> str:
                 b = cam.world(lat_edges[i + 1], lon, spin)
                 ds.append(quad(cam, a, b, fmt))
                 ops.append(op(segment_opacity(cam, a, b)))
-            if all(o == "0" for o in ops):
-                continue  # never visible during the step
+            still.setdefault(ops[0], []).append(ds[0])
             meridians.append(
                 f'<path d="{ds[0]}" stroke-opacity="{ops[0]}">'
                 f'<animate attributeName="d" dur="{dur}" repeatCount="indefinite" values="{";".join(ds)}"/>'
@@ -218,14 +235,12 @@ def render(theme: str, cfg: Config, layout: Layout) -> str:
         for i in range(n):
             a = cam.world(lat, 360 * i / n, 0)
             b = cam.world(lat, 360 * (i + 1) / n, 0)
-            o = op(segment_opacity(cam, a, b))
-            if o != "0":
-                by_opacity.setdefault(o, []).append(quad(cam, a, b, fmt))
+            by_opacity.setdefault(op(segment_opacity(cam, a, b)), []).append(quad(cam, a, b, fmt))
     latitudes = "".join(f'<path stroke-opacity="{o}" d="{"".join(d)}"/>' for o, d in sorted(by_opacity.items()))
+    meridians_still = "".join(f'<path stroke-opacity="{o}" d="{"".join(d)}"/>' for o, d in sorted(still.items()))
 
     # Geodesic: a great circle inclined to the equator, fixed in space while the
-    # globe turns beneath it. Its visible arc is drawn, and one point traces it,
-    # sized and faded by its depth and hidden behind the sphere.
+    # globe turns beneath it. Only its near half is drawn.
     inc, node = math.radians(cfg.geodesic_inclination), math.radians(cfg.geodesic_node)
     # Orthonormal basis of the circle's plane: e1 is the ascending node on the
     # equator, e2 is 90 degrees further along the circle, raised by the inclination.
@@ -240,28 +255,10 @@ def render(theme: str, cfg: Config, layout: Layout) -> str:
     n = 48
     for i in range(n):
         a, b = geo(2 * math.pi * i / n), geo(2 * math.pi * (i + 1) / n)
-        o = op(segment_opacity(cam, a, b) * 0.55)
-        if o != "0":
-            arc.setdefault(o, []).append(quad(cam, a, b, fmt))
+        f = cam.facing(mid_on_sphere(a, b))
+        if f > 0:  # the orbital line is drawn on the near hemisphere only
+            arc.setdefault(op(cfg.geodesic_peak * min(1.0, 0.35 + f * 2.2)), []).append(quad(cam, a, b, fmt))
     geodesic_arc = "".join(f'<path stroke-opacity="{o}" d="{"".join(d)}"/>' for o, d in sorted(arc.items()))
-
-    pts, radii, alphas = [], [], []
-    for i in range(cfg.geodesic_samples + 1):
-        q = geo(2 * math.pi * i / cfg.geodesic_samples)
-        x, y = cam.project(q)
-        k = cfg.distance / (cfg.distance - q[2])
-        f = cam.facing(q)
-        pts.append(f"{fmt(x)},{fmt(y)}")
-        radii.append(fmt(2.4 * k * layout.radius / 150))
-        alphas.append(op(min(1.0, f * 1.6)))
-    gdur = f"{cfg.geodesic_seconds:g}s"
-    tracer = (
-        f'<circle r="{radii[0]}" fill="{c["line"]}" opacity="{alphas[0]}">'
-        f'<animateMotion dur="{gdur}" repeatCount="indefinite" values="{";".join(pts)}"/>'
-        f'<animate attributeName="r" dur="{gdur}" repeatCount="indefinite" values="{";".join(radii)}"/>'
-        f'<animate attributeName="opacity" dur="{gdur}" repeatCount="indefinite" values="{";".join(alphas)}"/>'
-        "</circle>"
-    )
 
     used = {k: "".join(t for cls, _, _, t in layout.lines if cls in k) for k in ("h", "s", "nl")}
     display = font_data("Inter-SemiBold.woff2", used["h"])
@@ -272,6 +269,28 @@ def render(theme: str, cfg: Config, layout: Layout) -> str:
     texts = "\n".join(
         f'<text class="{cls} in a{min(i + 1, 5)}" x="{x}" y="{y}">{t.replace("&", "&amp;")}</text>'
         for i, (cls, x, y, t) in enumerate(layout.lines)
+    )
+
+    # Sphere body: dark core brightening towards the limb, then a narrow cyan
+    # illumination just outside it. Both are radial gradients centred on the sphere.
+    R, X, Y = layout.radius, fmt(layout.cx), fmt(layout.cy)
+    halo_r = R * (1 + cfg.halo_width)
+    inner = R / halo_r
+    shading = (
+        f'<radialGradient id="body" cx="{X}" cy="{Y}" r="{fmt(R)}" gradientUnits="userSpaceOnUse">'
+        f'<stop offset="0" stop-color="{cfg.fill_core}"/><stop offset=".72" stop-color="{cfg.fill_mid}"/>'
+        f'<stop offset=".955" stop-color="{cfg.fill_edge}"/><stop offset="1" stop-color="{cfg.rim_color}" stop-opacity="{op(cfg.rim_glow * 2)}"/>'
+        "</radialGradient>"
+        f'<radialGradient id="halo" cx="{X}" cy="{Y}" r="{fmt(halo_r)}" gradientUnits="userSpaceOnUse">'
+        f'<stop offset="{op(inner)}" stop-color="{cfg.rim_color}" stop-opacity="{op(cfg.rim_glow)}"/>'
+        f'<stop offset="{op(inner + (1 - inner) * 0.4)}" stop-color="{cfg.rim_color}" stop-opacity="{op(cfg.rim_glow * 0.3)}"/>'
+        f'<stop offset="1" stop-color="{cfg.rim_color}" stop-opacity="0"/>'
+        "</radialGradient>"
+        # The edge line is lit from the top left and fades towards the bottom right.
+        f'<linearGradient id="limb" x1="{fmt(layout.cx - R * 0.6)}" y1="{fmt(layout.cy - R * 0.8)}" x2="{fmt(layout.cx + R * 0.6)}" y2="{fmt(layout.cy + R * 0.8)}" gradientUnits="userSpaceOnUse">'
+        f'<stop offset="0" stop-color="{cfg.rim_color}" stop-opacity="{op(cfg.limb_opacity)}"/>'
+        f'<stop offset="1" stop-color="{cfg.rim_color}" stop-opacity="{op(cfg.limb_opacity * cfg.limb_falloff)}"/>'
+        "</linearGradient>"
     )
 
     W, H = layout.width, layout.height
@@ -291,15 +310,21 @@ def render(theme: str, cfg: Config, layout: Layout) -> str:
 .g{{opacity:0;animation:f 1.4s ease .25s forwards}}
 @keyframes r{{from{{opacity:0;transform:translateY(12px)}}to{{opacity:1;transform:none}}}}
 @keyframes f{{to{{opacity:1}}}}
-@media (prefers-reduced-motion:reduce){{.in,.g{{animation:none;opacity:1}}}}
+.st{{display:none}}
+@media (prefers-reduced-motion:reduce){{.in,.g{{animation:none;opacity:1}}.m{{display:none}}.st{{display:inline}}}}
 </style>
+<defs>{shading}</defs>
 <rect width="{W}" height="{H}" rx="14" fill="{c['bg']}"/>
-<g class="g" fill="none" stroke="{c['line']}" stroke-linecap="round">
-<g stroke-width="1">{latitudes}</g>
-<g stroke-width="1">{"".join(meridians)}</g>
-<g stroke-width="1.2">{geodesic_arc}</g>
-<circle cx="{fmt(layout.cx)}" cy="{fmt(layout.cy)}" r="{fmt(layout.radius)}" stroke-opacity=".5" stroke-width="1.2"/>
-{tracer}
+<g class="g">
+<circle cx="{X}" cy="{Y}" r="{fmt(halo_r)}" fill="url(#halo)"/>
+<circle cx="{X}" cy="{Y}" r="{fmt(R)}" fill="url(#body)"/>
+<g fill="none" stroke="{cfg.line_color}" stroke-linecap="round" stroke-width="1">
+<g>{latitudes}</g>
+<g class="m">{"".join(meridians)}</g>
+<g class="st">{meridians_still}</g>
+</g>
+<g fill="none" stroke="{cfg.geodesic_color}" stroke-linecap="round" stroke-width="{cfg.geodesic_width:g}">{geodesic_arc}</g>
+<circle cx="{X}" cy="{Y}" r="{fmt(R)}" fill="none" stroke="url(#limb)" stroke-width="1.2"/>
 </g>
 {texts}
 <rect x=".5" y=".5" width="{W - 1}" height="{H - 1}" rx="13.5" fill="none" stroke="{c['edge']}"/>
@@ -311,8 +336,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", type=Path, default=HERE.parent / "assets")
     for field in dataclasses.fields(Config):
-        if field.type in ("int", "float"):
-            parser.add_argument(f"--{field.name.replace('_', '-')}", type=int if field.type == "int" else float)
+        if field.type in ("int", "float", "str"):
+            parser.add_argument(f"--{field.name.replace('_', '-')}", type={"int": int, "float": float, "str": str}[field.type])
     args = parser.parse_args()
     overrides = {f.name: getattr(args, f.name) for f in dataclasses.fields(Config) if getattr(args, f.name, None) is not None}
     cfg = Config(**overrides)
